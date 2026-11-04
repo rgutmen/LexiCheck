@@ -1,0 +1,59 @@
+# Infrastructure changes: plan on PR (comment), apply on main per environment.
+name: Infrastructure
+
+on:
+  pull_request:
+    paths: ["infra/terraform/**"]
+  push:
+    branches: [main]
+    paths: ["infra/terraform/**"]
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  plan:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: { environment: [dev, staging, prod] }
+    environment: ${{ matrix.environment }}-plan
+    defaults: { run: { working-directory: "infra/terraform/envs/${{ matrix.environment }}" } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.TF_PLAN_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
+      - id: plan
+        run: terraform plan -input=false -no-color -lock-timeout=5m -var github_repository=${{ github.repository }} -out=tfplan
+      - uses: actions/github-script@v7
+        env: { PLAN: "${{ steps.plan.outputs.stdout }}" }
+        with:
+          script: |
+            const body = `#### Terraform plan: \`${{ matrix.environment }}\`\n<details><summary>show</summary>\n\n\`\`\`\n${process.env.PLAN.slice(-60000)}\n\`\`\`\n</details>`;
+            await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+
+  apply:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 1
+      matrix: { environment: [dev, staging, prod] }
+    environment: ${{ matrix.environment }}-infra
+    concurrency: { group: "tf-${{ matrix.environment }}", cancel-in-progress: false }
+    defaults: { run: { working-directory: "infra/terraform/envs/${{ matrix.environment }}" } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.TF_APPLY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
+      - run: terraform apply -input=false -auto-approve -lock-timeout=5m -var github_repository=${{ github.repository }}

@@ -1,0 +1,98 @@
+# Reusable job: ships one already-built image + frontend build to one environment.
+name: deploy-env
+
+on:
+  workflow_call:
+    inputs:
+      environment: { type: string, required: true }
+      image_tag: { type: string, required: true }
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    # GitHub environment = protection rules (e.g. required reviewers for prod)
+    # and the OIDC subject the AWS deploy role trusts.
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ vars.APP_URL }}
+    concurrency:
+      group: deploy-${{ inputs.environment }}
+      cancel-in-progress: false
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+      ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+      ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+      TASK_FAMILY: ${{ vars.TASK_FAMILY }}
+      SITE_BUCKET: ${{ vars.SITE_BUCKET }}
+      DISTRIBUTION_ID: ${{ vars.DISTRIBUTION_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      # Images are built once and promoted; the same digest runs in dev, staging and prod.
+      - name: Verify image exists in this environment's registry
+        run: |
+          aws ecr describe-images --repository-name "${ECR_REPOSITORY_URL##*/}" \
+            --image-ids imageTag=${{ inputs.image_tag }} >/dev/null
+
+      - name: Render task definition with the new image
+        run: |
+          aws ecs describe-task-definition --task-definition "$TASK_FAMILY" \
+            --query taskDefinition > taskdef.json
+      - id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: taskdef.json
+          container-name: api
+          image: ${{ env.ECR_REPOSITORY_URL }}:${{ inputs.image_tag }}
+
+      # Rolling deploy: new tasks must pass ALB health checks before old ones drain.
+      # The ECS circuit breaker rolls back automatically if they never become healthy.
+      - name: Deploy API
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          wait-for-service-stability: true
+          wait-for-minutes: 15
+
+      - uses: actions/download-artifact@v4
+        with: { name: web-dist, path: dist }
+
+      # Hashed assets first (immutable, long cache), index.html last (no cache), so a
+      # browser never loads an index.html that points at assets not uploaded yet.
+      - name: Publish frontend
+        run: |
+          aws s3 sync dist/assets "s3://$SITE_BUCKET/assets" \
+            --cache-control "public,max-age=31536000,immutable"
+          aws s3 cp dist/index.html "s3://$SITE_BUCKET/index.html" \
+            --cache-control "no-cache"
+          aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" \
+            --paths /index.html
+
+      - name: Smoke test through CloudFront
+        run: |
+          for i in $(seq 1 10); do
+            curl -fsS "${{ vars.APP_URL }}/api/readyz" && break
+            sleep 6
+          done
+          curl -fsS -X POST "${{ vars.APP_URL }}/api/v1/check" \
+            -H 'content-type: application/json' -d '{"text":"smoke tset"}' \
+            | jq -e '.issues | length >= 1'
+
+      - name: Summary
+        run: |
+          echo "### ${{ inputs.environment }} deployed" >> "$GITHUB_STEP_SUMMARY"
+          echo "image: \`${{ inputs.image_tag }}\`" >> "$GITHUB_STEP_SUMMARY"
