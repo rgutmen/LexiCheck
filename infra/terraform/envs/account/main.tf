@@ -7,8 +7,9 @@ module "budget" {
 }
 
 module "ci_roles" {
-  source            = "../../modules/ci-roles"
-  name              = "lexicheck"
-  github_repository = var.github_repository
-  state_bucket      = var.state_bucket
+  source                     = "../../modules/ci-roles"
+  name                       = "lexicheck"
+  github_repository          = var.github_repository
+  github_oidc_subject_prefix = var.github_oidc_subject_prefix
+  state_bucket               = var.state_bucket
 }

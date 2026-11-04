@@ -14,7 +14,11 @@ AWS_REGION   ?= eu-west-1
 REPO         ?= $(shell git remote get-url origin 2>/dev/null | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$$##')
 TF_DIR       := infra/terraform/envs/$(ENV)
 TF           := terraform -chdir=$(TF_DIR)
-TF_VARS      := -var region=$(AWS_REGION) -var github_repository=$(REPO)
+# GitHub's OIDC subject prefix for this repo. New repos use an immutable form with
+# numeric IDs (repo:owner@123/name@456); the AWS roles must match it exactly.
+OIDC_SUB     = $(shell env -u GITHUB_TOKEN gh api repos/$(REPO)/actions/oidc/customization/sub -q .sub_claim_prefix 2>/dev/null)
+TF_VARS      = -var region=$(AWS_REGION) -var github_repository=$(REPO) \
+               $(if $(OIDC_SUB),-var github_oidc_subject_prefix=$(OIDC_SUB))
 TAG          ?= try-$(shell date +%s)
 TMPDIR       ?= /tmp
 TASKDEF_TMP  := $(TMPDIR)/lexicheck-taskdef.json
@@ -149,7 +153,8 @@ aws-account: aws-oidc ## Account-wide setup: $$20 budget alerts + GitHub CI role
 	  -backend-config=bucket=$(STATE_BUCKET) -backend-config=region=$(AWS_REGION) >/dev/null
 	terraform -chdir=infra/terraform/envs/account apply -input=false -auto-approve \
 	  -var region=$(AWS_REGION) -var 'budget_emails=["$(EMAIL)"]' -var monthly_budget=$(or $(LIMIT),20) \
-	  -var github_repository=$(REPO) -var state_bucket=$(STATE_BUCKET)
+	  -var github_repository=$(REPO) -var state_bucket=$(STATE_BUCKET) \
+	  $(if $(OIDC_SUB),-var github_oidc_subject_prefix=$(OIDC_SUB))
 
 .PHONY: gh-setup
 gh-setup: aws-init ## Connect GitHub Actions to AWS: create environments and set variables with gh
@@ -174,7 +179,8 @@ gh-setup: aws-init ## Connect GitHub Actions to AWS: create environments and set
 	set_repo TF_STATE_BUCKET   "$(STATE_BUCKET)"; \
 	set_repo TF_PLAN_ROLE_ARN  "$$(jq -r .plan_role_arn <<<"$$acct")"; \
 	set_repo TF_APPLY_ROLE_ARN "$$(jq -r .apply_role_arn <<<"$$acct")"; \
-	set_repo AWS_DEPLOY_ENABLED true
+	set_repo AWS_DEPLOY_ENABLED true; \
+	set_repo OIDC_SUBJECT_PREFIX "$(OIDC_SUB)"
 	@echo "Done. Push to main (or run the Release workflow) to deploy."
 
 .PHONY: gh-disconnect

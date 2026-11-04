@@ -3,6 +3,9 @@ data "aws_region" "current" {}
 locals {
   name = "lexicheck-${var.environment}"
   prod = var.environment == "prod"
+  # GitHub's OIDC `sub` starts with this. New repos use the immutable form with
+  # numeric IDs (repo:owner@123/name@456), older ones repo:owner/name.
+  subject = coalesce(var.github_oidc_subject_prefix, "repo:${var.github_repository}")
 }
 
 module "network" {
@@ -93,7 +96,7 @@ data "aws_iam_policy_document" "deploy_trust" {
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${var.github_repository}:environment:${var.environment}"]
+      values   = ["${local.subject}:environment:${var.environment}"]
     }
   }
 }

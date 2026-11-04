@@ -8,6 +8,9 @@ data "aws_iam_openid_connect_provider" "github" {
 
 locals {
   oidc = "token.actions.githubusercontent.com"
+  # GitHub's OIDC `sub` starts with this. New repos use the immutable form with
+  # numeric IDs (repo:owner@123/name@456), older ones repo:owner/name.
+  subject = coalesce(var.github_oidc_subject_prefix, "repo:${var.github_repository}")
 }
 
 # ---------------------------------------------------------------- plan (read-only)
@@ -27,7 +30,7 @@ data "aws_iam_policy_document" "plan_trust" {
     condition {
       test     = "StringLike"
       variable = "${local.oidc}:sub"
-      values   = ["repo:${var.github_repository}:*"]
+      values   = ["${local.subject}:*"]
     }
   }
 }
@@ -78,7 +81,7 @@ data "aws_iam_policy_document" "apply_trust" {
     condition {
       test     = "StringEquals"
       variable = "${local.oidc}:sub"
-      values   = ["repo:${var.github_repository}:environment:infra"]
+      values   = ["${local.subject}:environment:infra"]
     }
   }
 }
