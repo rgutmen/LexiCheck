@@ -18,3 +18,4 @@ plan.out
 *.tfvars
 !*.tfvars.example
 backend.hcl
+*.tsbuildinfo
