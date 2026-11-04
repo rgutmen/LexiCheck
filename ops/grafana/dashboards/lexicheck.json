@@ -1,0 +1,50 @@
+{
+  "title": "LexiCheck - Service health",
+  "uid": "lexicheck-health",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Requests per second by route",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "uid": "prom" },
+      "targets": [{ "expr": "sum by (route) (rate(lexicheck_http_requests_total[1m]))", "legendFormat": "{{route}}" }]
+    },
+    {
+      "type": "stat",
+      "title": "Error ratio (5xx, 5m)",
+      "gridPos": { "x": 12, "y": 0, "w": 6, "h": 8 },
+      "datasource": { "uid": "prom" },
+      "fieldConfig": { "defaults": { "unit": "percentunit" } },
+      "targets": [{ "expr": "sum(rate(lexicheck_http_requests_total{status=~\"5..\"}[5m])) / clamp_min(sum(rate(lexicheck_http_requests_total[5m])), 1e-9)" }]
+    },
+    {
+      "type": "stat",
+      "title": "Misspellings found (1h)",
+      "gridPos": { "x": 18, "y": 0, "w": 6, "h": 8 },
+      "datasource": { "uid": "prom" },
+      "targets": [{ "expr": "sum(increase(lexicheck_issues_total[1h]))" }]
+    },
+    {
+      "type": "timeseries",
+      "title": "Latency p50 / p95 / p99",
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "uid": "prom" },
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.5, sum by (le) (rate(lexicheck_http_request_duration_seconds_bucket[5m])))", "legendFormat": "p50" },
+        { "expr": "histogram_quantile(0.95, sum by (le) (rate(lexicheck_http_request_duration_seconds_bucket[5m])))", "legendFormat": "p95" },
+        { "expr": "histogram_quantile(0.99, sum by (le) (rate(lexicheck_http_request_duration_seconds_bucket[5m])))", "legendFormat": "p99" }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Words checked per language",
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 },
+      "datasource": { "uid": "prom" },
+      "targets": [{ "expr": "sum by (language) (rate(lexicheck_checked_words_total[5m]))", "legendFormat": "{{language}}" }]
+    }
+  ]
+}
