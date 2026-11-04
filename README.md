@@ -129,7 +129,7 @@ Once the infra exists, GitHub Actions takes over:
 - **Merging to main** builds the image once (tagged with the commit SHA) and promotes it through dev, then staging, then prod. Prod waits for a manual approval.
 - **Rollback.** Run the *Release* workflow with an older `image_tag`. On top of that, ECS rolls back automatically if new tasks never become healthy.
 
-To connect it, create the GitHub environments `dev`, `staging` and `prod`. Fill their variables from `terraform output deploy` (role ARN, ECR URL, cluster, service, bucket, distribution ID, URL).
+To connect it, create the GitHub environments `dev`, `staging` and `prod`. Fill their variables from `terraform output deploy` (role ARN, ECR URL, cluster, service, bucket, distribution ID, URL), then set the repo variable `AWS_DEPLOY_ENABLED=true`. Until you do, pushes only run CI.
 
 ### Security scanning
 

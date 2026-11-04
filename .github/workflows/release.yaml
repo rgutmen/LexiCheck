@@ -23,15 +23,17 @@ jobs:
     if: ${{ !inputs.image_tag }}
     uses: ./.github/workflows/ci.yaml
 
+  # Deploy jobs only run once the repo is connected to AWS (see README, CI/CD).
+  # Until then, set nothing and pushes just run CI.
   build:
     needs: ci
-    if: ${{ always() && (needs.ci.result == 'success' || inputs.image_tag) }}
+    if: ${{ always() && vars.AWS_DEPLOY_ENABLED == 'true' && (needs.ci.result == 'success' || inputs.image_tag) }}
     runs-on: ubuntu-latest
     environment: build
     outputs:
       image_tag: ${{ steps.tag.outputs.value }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: tag
         run: echo "value=${{ inputs.image_tag || github.sha }}" >> "$GITHUB_OUTPUT"
 
@@ -39,24 +41,24 @@ jobs:
         with: { node-version: "24", cache: true }
       - run: vp install && vp build
         working-directory: web
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: web-dist, path: web/dist, retention-days: 30 }
 
       - if: ${{ !inputs.image_tag }}
-        uses: aws-actions/configure-aws-credentials@v4
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.BUILD_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
       - if: ${{ !inputs.image_tag }}
         uses: aws-actions/amazon-ecr-login@v2
       - if: ${{ !inputs.image_tag }}
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
       - if: ${{ !inputs.image_tag }}
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       # Pushed to every environment's registry: tags are immutable, so a rollback is
       # just redeploying an older SHA through workflow_dispatch.
       - if: ${{ !inputs.image_tag }}
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: api
           platforms: linux/arm64

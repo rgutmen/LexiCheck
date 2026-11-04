@@ -31,9 +31,9 @@ jobs:
       SITE_BUCKET: ${{ vars.SITE_BUCKET }}
       DISTRIBUTION_ID: ${{ vars.DISTRIBUTION_ID }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
@@ -68,15 +68,18 @@ jobs:
           wait-for-service-stability: true
           wait-for-minutes: 15
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: web-dist, path: dist }
 
-      # Hashed assets first (immutable, long cache), index.html last (no cache), so a
-      # browser never loads an index.html that points at assets not uploaded yet.
+      # Hashed assets first (immutable, long cache), then root files like favicons and
+      # the manifest, and index.html last (no cache), so a browser never loads an
+      # index.html that points at files not uploaded yet.
       - name: Publish frontend
         run: |
           aws s3 sync dist/assets "s3://$SITE_BUCKET/assets" \
             --cache-control "public,max-age=31536000,immutable"
+          aws s3 sync dist "s3://$SITE_BUCKET" --exclude "assets/*" --exclude index.html \
+            --cache-control "public,max-age=86400"
           aws s3 cp dist/index.html "s3://$SITE_BUCKET/index.html" \
             --cache-control "no-cache"
           aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" \

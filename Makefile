@@ -192,6 +192,8 @@ aws-site: ## Build the frontend and publish it to S3 + CloudFront
 	bucket=$$($(TF) output -json deploy | jq -r .site_bucket); \
 	dist=$$($(TF) output -json deploy | jq -r .distribution_id); \
 	aws s3 sync web/dist/assets "s3://$$bucket/assets" --cache-control "public,max-age=31536000,immutable"; \
+	aws s3 sync web/dist "s3://$$bucket" --exclude "assets/*" --exclude index.html \
+	  --cache-control "public,max-age=86400"; \
 	aws s3 cp web/dist/index.html "s3://$$bucket/index.html" --cache-control no-cache; \
 	aws cloudfront create-invalidation --distribution-id "$$dist" --paths '/*' >/dev/null
 

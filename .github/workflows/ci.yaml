@@ -10,7 +10,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # github.workflow differs when Release calls this file, so the two never cancel each other.
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -18,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: api } }
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v3
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
         with: { enable-cache: true }
       - run: uv sync --frozen
       - run: uv run ruff check .
@@ -30,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: web } }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: voidzero-dev/setup-vp@v1
         with: { node-version: "24", cache: true }
       - run: vp install
@@ -40,8 +41,8 @@ jobs:
   terraform:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v7
+      - uses: hashicorp/setup-terraform@v4
       - run: terraform fmt -check -recursive infra/terraform
       - name: validate every environment
         run: |
@@ -50,7 +51,7 @@ jobs:
             terraform -chdir="$env" validate
           done
       - name: Trivy, Terraform misconfigurations
-        uses: aquasecurity/trivy-action@0.33.1
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: config
           scan-ref: infra/terraform
@@ -63,8 +64,8 @@ jobs:
   deps-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: aquasecurity/trivy-action@0.33.1
+      - uses: actions/checkout@v7
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .
@@ -77,9 +78,9 @@ jobs:
   image-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker build -t lexicheck-api:ci api
-      - uses: aquasecurity/trivy-action@0.33.1
+      - uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: lexicheck-api:ci
           severity: HIGH,CRITICAL
@@ -91,7 +92,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [api, web]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: docker compose up -d --build --wait
       - run: |
           curl -fsS localhost:8081/api/readyz
