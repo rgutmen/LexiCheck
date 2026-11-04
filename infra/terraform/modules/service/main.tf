@@ -8,6 +8,8 @@ data "aws_ec2_managed_prefix_list" "cloudfront" {
 resource "aws_ecr_repository" "api" {
   name                 = "${var.name}-api"
   image_tag_mutability = "IMMUTABLE"
+  # Non-prod: destroy removes the images too. Prod keeps them as a safety net.
+  force_delete = !var.deletion_protection
   image_scanning_configuration {
     scan_on_push = true
   }

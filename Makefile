@@ -259,11 +259,6 @@ aws-up: aws-apply aws-push aws-site aws-smoke ## Full deploy: infra, image, site
 
 .PHONY: aws-down
 aws-down: aws-init ## Destroy everything aws-up created
-	repo=$$($(TF) output -json deploy 2>/dev/null | jq -r '.ecr_repository_url // empty' | cut -d/ -f2); \
-	if [ -n "$$repo" ]; then \
-	  ids=$$(aws ecr list-images --repository-name "$$repo" --query imageIds --output json); \
-	  [ "$$ids" = "[]" ] || aws ecr batch-delete-image --repository-name "$$repo" --image-ids "$$ids" >/dev/null; \
-	fi
 	$(TF) destroy -input=false -auto-approve $(TF_VARS)
 	@echo "Destroyed $(ENV). Kept: state bucket $(STATE_BUCKET) (cents/month) and the GitHub OIDC provider (free)."
 	@echo "Run 'make aws-delete-state' to remove the state bucket too."
