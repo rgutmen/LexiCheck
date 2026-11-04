@@ -2,10 +2,11 @@ SHELL         := bash
 .SHELLFLAGS   := -euo pipefail -c
 .DEFAULT_GOAL := help
 
-# Optional local AWS credentials (gitignored), loaded into make's environment.
-# Accepts `export KEY=value` or `KEY=value` lines.
-ifneq (,$(wildcard .env.aws))
-  $(foreach line,$(shell sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Z_][A-Z0-9_]*)=["'\'']?([^"'\'']*)["'\'']?[[:space:]]*$$/\2=\3/p' .env.aws),$(eval export $(line)))
+# Local secrets (gitignored): AWS credentials and the optional OpenAI key.
+# See .env.local.example. Accepts `export KEY=value` or `KEY=value` lines.
+ENV_FILE := $(firstword $(wildcard .env.local .env.aws))
+ifneq (,$(ENV_FILE))
+  $(foreach line,$(shell sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Z_][A-Z0-9_]*)=["'\'']?([^"'\'']*)["'\'']?[[:space:]]*$$/\2=\3/p' $(ENV_FILE)),$(eval export $(line)))
 endif
 
 ENV          ?= dev
@@ -111,7 +112,7 @@ TRIVY = docker run --rm -v $(CURDIR):/src -v /var/run/docker.sock:/var/run/docke
 scan: ## Trivy: Terraform misconfigs, dependency CVEs + secrets, and the API image
 	$(TRIVY) config --severity HIGH,CRITICAL --ignorefile .trivyignore --exit-code 1 infra/terraform
 	$(TRIVY) fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-	  --skip-dirs web/node_modules,api/.venv --skip-files .env.aws .
+	  --skip-dirs web/node_modules,api/.venv --skip-files .env.local,.env.aws .
 	docker build -q -t lexicheck-api:scan api >/dev/null
 	$(TRIVY) image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 lexicheck-api:scan
 
@@ -157,8 +158,8 @@ aws-account: aws-oidc ## Account-wide setup: $$20 budget alerts + GitHub CI role
 	  $(if $(OIDC_SUB),-var github_oidc_subject_prefix=$(OIDC_SUB))
 
 .PHONY: aws-openai-key
-aws-openai-key: ## Store OPENAI_API_KEY (from .env.aws or your shell) in Secrets Manager
-	@test -n "$${OPENAI_API_KEY:-}" || { echo "Set OPENAI_API_KEY in .env.aws first." >&2; exit 1; }
+aws-openai-key: ## Store OPENAI_API_KEY (from .env.local or your shell) in Secrets Manager
+	@test -n "$${OPENAI_API_KEY:-}" || { echo "Set OPENAI_API_KEY in .env.local first." >&2; exit 1; }
 	@id=$$($(TF) output -json deploy | jq -r .openai_secret_id); \
 	  printf '%s' "$$OPENAI_API_KEY" > $(TMPDIR)/lexicheck-oai && chmod 600 $(TMPDIR)/lexicheck-oai; \
 	  aws secretsmanager put-secret-value --secret-id "$$id" \
