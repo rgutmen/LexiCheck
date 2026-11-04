@@ -1,5 +1,3 @@
-<img src=".github/assets/logo.png" alt="" width="72" align="right">
-
 # LexiCheck
 
 A small spell-checker web app, and a production-style AWS setup to run it.
@@ -7,6 +5,8 @@ A small spell-checker web app, and a production-style AWS setup to run it.
 Paste some text, pick a language, and every misspelled word gets a wavy red underline. Click a word and choose a fix from the margin. It supports English, Spanish, French, German, Italian and Portuguese.
 
 ![LexiCheck flags "reponse", "attatched" and "beleive" in an email draft, and suggests "attached" in the margin](.github/assets/screenshot.png)
+
+Under the hood there's no AI model. It uses [pyspellchecker](https://github.com/barrust/pyspellchecker), which follows Peter Norvig's classic approach: words not in the language's dictionary get flagged, and suggestions are dictionary words one or two edits away, ranked by how common they are. You pick the language yourself, nothing is auto-detected. It's fast, cheap and predictable, but it won't catch a real word used in the wrong place ("their" vs "there").
 
 The app is deliberately simple. The point of the repo is everything around it: Terraform modules, a CI/CD pipeline with dev, staging and prod, zero-downtime deploys, and monitoring.
 
