@@ -1,0 +1,4 @@
+bucket = "your-terraform-state-bucket"
+region = "eu-west-1"
+# Optional: encrypt state with a customer-managed key instead of SSE-S3.
+# kms_key_id = "arn:aws:kms:eu-west-1:123456789012:alias/terraform-state"
