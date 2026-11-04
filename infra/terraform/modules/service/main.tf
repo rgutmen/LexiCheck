@@ -305,6 +305,22 @@ resource "aws_ecs_service" "api" {
   enable_execute_command            = false
   propagate_tags                    = "SERVICE"
 
+  # Declared here (not only on the cluster) so Terraform's view matches what ECS
+  # stores; otherwise every plan wants to replace the service.
+  capacity_provider_strategy {
+    capacity_provider = "FARGATE"
+    base              = 1
+    weight            = 1
+  }
+
+  dynamic "capacity_provider_strategy" {
+    for_each = var.spot_weight > 0 ? [1] : []
+    content {
+      capacity_provider = "FARGATE_SPOT"
+      weight            = var.spot_weight
+    }
+  }
+
   # Rolling update that never drops below full capacity: new tasks must pass the
   # ALB health check before old ones are drained. A failed rollout reverts on its own.
   deployment_minimum_healthy_percent = 100

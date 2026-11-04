@@ -97,28 +97,3 @@ resource "aws_cloudwatch_metric_alarm" "db_storage" {
   comparison_operator = "LessThanThreshold"
   alarm_actions       = [aws_sns_topic.alerts.arn]
 }
-
-variable "name" {
-  type = string
-}
-
-variable "alb_arn_suffix" {
-  type = string
-}
-
-variable "target_group_arn_suffix" {
-  type = string
-}
-
-variable "db_identifier" {
-  type = string
-}
-
-variable "alert_emails" {
-  type    = list(string)
-  default = []
-}
-
-output "alerts_topic_arn" {
-  value = aws_sns_topic.alerts.arn
-}
