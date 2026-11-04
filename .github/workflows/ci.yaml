@@ -2,8 +2,16 @@ name: CI
 
 on:
   pull_request:
+  # On main, Release already runs CI for app changes. This catches the rest
+  # (Terraform, compose, ops, Makefile) and skips pure docs and images.
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "**.png"
+      - "**.svg"
+      - "api/**"
+      - "web/**"
   workflow_call:
 
 permissions:

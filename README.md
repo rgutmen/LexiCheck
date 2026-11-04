@@ -144,7 +144,10 @@ The variables (role ARNs, bucket and cluster names, URL) aren't sensitive, and t
 From then on:
 
 - **Pull requests** run lint, tests, the frontend build, `terraform validate`, Trivy and a docker-compose smoke test. If you touched `infra/`, the Terraform plan is posted as a comment.
-- **Merging to main** runs CI, builds the ARM64 image on an ARM runner, pushes it to ECR tagged with the commit SHA, rolls ECS over to it, publishes the frontend to S3 and smoke tests the live URL. Changes under `infra/` get applied too.
+- **Merging to main** only deploys what changed:
+  - `api/` or `web/` changed: run CI, build the ARM64 image on an ARM runner, push it to ECR tagged with the commit SHA, roll ECS over to it, publish the frontend to S3 and smoke test the live URL.
+  - `infra/terraform/` changed: `terraform apply`.
+  - Docs or images only: nothing runs.
 - **Rollback.** Run the *Release* workflow by hand with an older `image_tag`. ECS also rolls back on its own if new tasks never get healthy.
 
 #### Tear down

@@ -1,10 +1,16 @@
-# Push to main: CI, build the image once, deploy it to AWS.
+# Push to main that touches the app: CI, build the image once, deploy it to AWS.
+# Docs, images, Terraform-only or ops changes don't redeploy the app.
 # Manual run with an older image tag = rollback.
 name: Release
 
 on:
   push:
     branches: [main]
+    paths:
+      - "api/**"
+      - "web/**"
+      - ".github/workflows/release.yaml"
+      - ".github/workflows/ci.yaml"
   workflow_dispatch:
     inputs:
       image_tag:
