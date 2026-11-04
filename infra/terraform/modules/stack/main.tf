@@ -53,7 +53,8 @@ module "database" {
   client_security_group_id = module.service.task_security_group_id
   instance_class           = var.db_instance_class
   multi_az                 = local.prod
-  backup_retention_days    = local.prod ? 30 : 3
+  backup_retention_days    = local.prod ? 30 : 1
+  performance_insights     = local.prod
   deletion_protection      = local.prod
 }
 

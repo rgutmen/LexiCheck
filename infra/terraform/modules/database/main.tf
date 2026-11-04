@@ -46,9 +46,11 @@ resource "aws_db_parameter_group" "this" {
 # RDS generates and rotates the master password in Secrets Manager;
 # it never appears in Terraform state or variables.
 resource "aws_db_instance" "this" {
-  identifier     = var.name
-  engine         = "postgres"
-  engine_version = "16.4"
+  identifier = var.name
+  engine     = "postgres"
+  # Major version only: AWS picks its current default 16.x, so old minors being
+  # retired never break an apply. auto_minor_version_upgrade keeps it patched.
+  engine_version = "16"
   instance_class = var.instance_class
 
   allocated_storage     = 20
@@ -73,8 +75,8 @@ resource "aws_db_instance" "this" {
   deletion_protection             = var.deletion_protection
   skip_final_snapshot             = !var.deletion_protection
   final_snapshot_identifier       = var.deletion_protection ? "${var.name}-final" : null
-  performance_insights_enabled    = true
-  performance_insights_kms_key_id = aws_kms_key.db.arn
+  performance_insights_enabled    = var.performance_insights
+  performance_insights_kms_key_id = var.performance_insights ? aws_kms_key.db.arn : null
   enabled_cloudwatch_logs_exports = ["postgresql"]
   auto_minor_version_upgrade      = true
   apply_immediately               = false

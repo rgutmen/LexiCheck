@@ -138,6 +138,28 @@ resource "aws_lb_listener" "this" {
   }
 }
 
+# /metrics is for an internal scraper, never for the internet. CloudFront forwards
+# /api/* (prefix stripped), so without this rule it would be public at /api/metrics.
+resource "aws_lb_listener_rule" "block_metrics" {
+  listener_arn = aws_lb_listener.this.arn
+  priority     = 5
+
+  condition {
+    path_pattern {
+      values = ["/metrics", "/metrics/*"]
+    }
+  }
+
+  action {
+    type = "fixed-response"
+    fixed_response {
+      content_type = "text/plain"
+      message_body = "Not found"
+      status_code  = "404"
+    }
+  }
+}
+
 resource "aws_lb_listener_rule" "from_cloudfront" {
   listener_arn = aws_lb_listener.this.arn
   priority     = 10

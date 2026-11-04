@@ -35,6 +35,12 @@ variable "backup_retention_days" {
   default = 7
 }
 
+variable "performance_insights" {
+  description = "Enable Performance Insights (off for short-lived test environments)"
+  type        = bool
+  default     = false
+}
+
 variable "deletion_protection" {
   type    = bool
   default = true
