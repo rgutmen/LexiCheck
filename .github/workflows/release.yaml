@@ -84,7 +84,7 @@ jobs:
           wait-for-minutes: 15
 
       - uses: voidzero-dev/setup-vp@v1
-        with: { node-version: "24", cache: true }
+        with: { node-version: "24", cache: true, working-directory: web }
 
       # Hashed assets first (long cache), then root files (favicons, manifest),
       # then index.html last with no cache, so nobody loads a page pointing at

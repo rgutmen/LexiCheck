@@ -27,7 +27,7 @@ env:
 jobs:
   plan:
     if: github.event_name == 'pull_request' && vars.AWS_DEPLOY_ENABLED == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v4
@@ -50,7 +50,7 @@ jobs:
 
   apply:
     if: github.event_name == 'push' && vars.AWS_DEPLOY_ENABLED == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # The apply role only trusts tokens from this environment, which only main can use.
     environment: infra
     steps:
