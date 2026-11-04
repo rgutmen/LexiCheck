@@ -10,7 +10,8 @@ import {
   PenLine,
   RotateCcw,
 } from "lucide-react";
-import { api, type CheckResult, type HistoryItem, type Issue } from "./api";
+import { api, type CheckResult, type Features, type HistoryItem, type Issue } from "./api";
+import Rewrite from "./Rewrite";
 
 const LANGUAGE_NAMES: Record<string, string> = {
   en: "English",
@@ -42,6 +43,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fixed, setFixed] = useState(0);
+  const [features, setFeatures] = useState<Features | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -52,6 +54,10 @@ export default function App() {
     api
       .history()
       .then(setHistory)
+      .catch(() => undefined);
+    api
+      .features()
+      .then(setFeatures)
       .catch(() => undefined);
   }, []);
 
@@ -138,87 +144,91 @@ export default function App() {
       </header>
 
       <main className="desk">
-        <section className="sheet" aria-label="Your text">
-          <div className="sheet-bar">
-            <label className="lang">
-              <span className="sr-only">Language</span>
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                disabled={busy}
-              >
-                {languages.map((l) => (
-                  <option key={l} value={l}>
-                    {LANGUAGE_NAMES[l] ?? l}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <span className="meter" aria-live="polite">
-              <span className="num">{wordCount.toLocaleString()}</span> words
-              <span className="sep" aria-hidden>
-                ·
+        <div className="main-col">
+          <section className="sheet" aria-label="Your text">
+            <div className="sheet-bar">
+              <label className="lang">
+                <span className="sr-only">Language</span>
+                <select
+                  value={language}
+                  onChange={(e) => setLanguage(e.target.value)}
+                  disabled={busy}
+                >
+                  {languages.map((l) => (
+                    <option key={l} value={l}>
+                      {LANGUAGE_NAMES[l] ?? l}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="meter" aria-live="polite">
+                <span className="num">{wordCount.toLocaleString()}</span> words
+                <span className="sep" aria-hidden>
+                  ·
+                </span>
+                <span className={`num ${text.length > MAX_CHARS ? "over" : ""}`}>
+                  {text.length.toLocaleString()}
+                </span>
+                /{MAX_CHARS.toLocaleString()}
               </span>
-              <span className={`num ${text.length > MAX_CHARS ? "over" : ""}`}>
-                {text.length.toLocaleString()}
-              </span>
-              /{MAX_CHARS.toLocaleString()}
-            </span>
-          </div>
+            </div>
 
-          {mode === "edit" ? (
-            <textarea
-              ref={textareaRef}
-              className="manuscript"
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Paste or type the text you want checked."
-              spellCheck={false}
-              aria-label="Text to check"
-            />
-          ) : (
-            <Proof
-              text={text}
-              issues={issues}
-              active={current}
-              onSelect={(i) => setActive(issues.indexOf(i))}
-            />
-          )}
-
-          <div className="sheet-foot">
-            {mode === "review" ? (
-              <button className="btn ghost" onClick={backToEditing}>
-                <PenLine size={16} strokeWidth={1.75} aria-hidden />
-                Edit text
-              </button>
+            {mode === "edit" ? (
+              <textarea
+                ref={textareaRef}
+                className="manuscript"
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="Paste or type the text you want checked."
+                spellCheck={false}
+                aria-label="Text to check"
+              />
             ) : (
-              <button className="btn ghost" onClick={() => setText("")} disabled={!text || busy}>
-                <Eraser size={16} strokeWidth={1.75} aria-hidden />
-                Clear
-              </button>
+              <Proof
+                text={text}
+                issues={issues}
+                active={current}
+                onSelect={(i) => setActive(issues.indexOf(i))}
+              />
             )}
-            <button
-              className="btn primary"
-              onClick={runCheck}
-              disabled={busy || !text.trim() || text.length > MAX_CHARS}
-            >
-              {busy ? (
-                <LoaderCircle size={16} strokeWidth={1.75} className="spin" aria-hidden />
-              ) : mode === "review" ? (
-                <RotateCcw size={16} strokeWidth={1.75} aria-hidden />
+
+            <div className="sheet-foot">
+              {mode === "review" ? (
+                <button className="btn ghost" onClick={backToEditing}>
+                  <PenLine size={16} strokeWidth={1.75} aria-hidden />
+                  Edit text
+                </button>
               ) : (
-                <ArrowRight size={16} strokeWidth={1.75} aria-hidden />
+                <button className="btn ghost" onClick={() => setText("")} disabled={!text || busy}>
+                  <Eraser size={16} strokeWidth={1.75} aria-hidden />
+                  Clear
+                </button>
               )}
-              {busy ? "Checking" : mode === "review" ? "Check again" : "Check spelling"}
-              <kbd>{isMac ? "⌘" : "Ctrl"} Enter</kbd>
-            </button>
-          </div>
-          {error && (
-            <p className="error" role="alert">
-              {error}
-            </p>
-          )}
-        </section>
+              <button
+                className="btn primary"
+                onClick={runCheck}
+                disabled={busy || !text.trim() || text.length > MAX_CHARS}
+              >
+                {busy ? (
+                  <LoaderCircle size={16} strokeWidth={1.75} className="spin" aria-hidden />
+                ) : mode === "review" ? (
+                  <RotateCcw size={16} strokeWidth={1.75} aria-hidden />
+                ) : (
+                  <ArrowRight size={16} strokeWidth={1.75} aria-hidden />
+                )}
+                {busy ? "Checking" : mode === "review" ? "Check again" : "Check spelling"}
+                <kbd>{isMac ? "⌘" : "Ctrl"} Enter</kbd>
+              </button>
+            </div>
+            {error && (
+              <p className="error" role="alert">
+                {error}
+              </p>
+            )}
+          </section>
+
+          {features?.ai_rewrite && <Rewrite text={text} features={features} />}
+        </div>
 
         <aside className="margin" aria-label="Corrections">
           <Corrections
@@ -259,7 +269,8 @@ export default function App() {
       </main>
 
       <footer className="colophon">
-        Dictionary-based spell checking. Grammar and style are out of scope.
+        Spell checking is dictionary-based and runs on our server.
+        {features?.ai_rewrite && " AI rewrites send your text to OpenAI."}
       </footer>
     </div>
   );

@@ -516,6 +516,107 @@ kbd {
   border-top: 1px solid var(--rule);
 }
 
+/* ------------------------------------------------------------- AI rewrite */
+.main-col {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+}
+
+.rewrite {
+  border-top: 1px solid var(--rule);
+  padding-top: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.rewrite-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.rewrite h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.rewrite-controls {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rewrite select {
+  appearance: none;
+  font: inherit;
+  font-weight: 500;
+  color: var(--ink);
+  background: var(--sheet)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%235C544A' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m3 4.5 3 3 3-3'/%3E%3C/svg%3E")
+    no-repeat right 10px center;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 8px 30px 8px 12px;
+  cursor: pointer;
+}
+
+.btn.accent {
+  background: var(--mark);
+  color: var(--on-ink);
+}
+
+.btn.accent:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--mark) 85%, var(--ink));
+}
+
+.rewrite-out {
+  margin: 0;
+  background: var(--sheet);
+  border-radius: 14px;
+  padding: 22px clamp(18px, 3vw, 30px) 14px;
+  box-shadow: 0 1px 2px rgb(60 40 20 / 0.06);
+  animation: rise 360ms var(--ease) both;
+}
+
+.rewrite-out blockquote {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 1.2rem;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.rewrite-out figcaption {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--rule);
+  color: var(--ink-2);
+  font-size: 0.82rem;
+}
+
+.small {
+  font-size: 0.86rem;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
 /* ------------------------------------------------------------- responsive */
 @media (max-width: 880px) {
   .desk {
