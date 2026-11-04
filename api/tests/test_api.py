@@ -1,12 +1,4 @@
-import os
-
-os.environ["LEXI_DATABASE_URL"] = "sqlite:///./test.db"
-
-import pytest  # noqa: E402
-from fastapi.testclient import TestClient  # noqa: E402
-
-from lexicheck.main import app  # noqa: E402
-from lexicheck.settings import Settings  # noqa: E402
+from lexicheck.settings import Settings
 
 
 def test_database_url_from_discrete_values():
@@ -14,14 +6,6 @@ def test_database_url_from_discrete_values():
     assert s.resolved_database_url == (
         "postgresql+psycopg://u:p%40ss%2Fword@db.internal:5432/lexicheck?sslmode=require"
     )
-
-
-@pytest.fixture(scope="module")
-def client():
-    with TestClient(app) as c:
-        yield c
-    if os.path.exists("test.db"):
-        os.remove("test.db")
 
 
 def test_health(client):

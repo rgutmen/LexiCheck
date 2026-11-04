@@ -1,6 +1,7 @@
 from functools import lru_cache
 from urllib.parse import quote_plus
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +25,13 @@ class Settings(BaseSettings):
     max_text_chars: int = 20_000
     cors_origins: list[str] = ["http://localhost:5173"]
     environment: str = "local"
+
+    # AI rewrite (optional). Without a key the feature is simply hidden.
+    # OPENAI_* names are read as-is so the same .env works everywhere.
+    openai_api_key: str | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+    openai_model: str = Field(default="gpt-4o-mini", validation_alias="OPENAI_MODEL")
+    openai_max_output_tokens: int = 300
+    rewrite_max_chars: int = 1_000
 
     @property
     def resolved_database_url(self) -> str:

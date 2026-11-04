@@ -15,6 +15,8 @@ HTTP_LATENCY = Histogram(
 )
 CHECKED_WORDS = Counter("lexicheck_checked_words_total", "Words analysed", ["language"])
 FOUND_ISSUES = Counter("lexicheck_issues_total", "Misspellings found", ["language"])
+REWRITES = Counter("lexicheck_rewrites_total", "AI rewrites", ["style", "outcome"])
+AI_TOKENS = Counter("lexicheck_ai_tokens_total", "OpenAI tokens used", ["model"])
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

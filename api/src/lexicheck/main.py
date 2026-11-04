@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from lexicheck import checker, metrics, storage
+from lexicheck import checker, metrics, rewriter, storage
 from lexicheck.settings import get_settings
 
 settings = get_settings()
@@ -59,6 +59,28 @@ class HistoryItem(BaseModel):
     created_at: datetime
 
 
+class RewriteRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=settings.rewrite_max_chars)
+    style: str
+
+
+class RewriteResponse(BaseModel):
+    text: str
+    style: str
+    model: str
+
+
+class StyleOut(BaseModel):
+    id: str
+    label: str
+
+
+class Features(BaseModel):
+    ai_rewrite: bool
+    rewrite_max_chars: int
+    styles: list[StyleOut]
+
+
 # Liveness: the process is up. Used by the container/ALB health check.
 @app.get("/healthz", include_in_schema=False)
 def healthz() -> dict[str, str]:
@@ -81,6 +103,33 @@ def prometheus_metrics() -> Response:
 @app.get("/v1/languages")
 def languages() -> list[str]:
     return list(checker.SUPPORTED_LANGUAGES)
+
+
+# Tells the UI whether to show the AI menu, so the app works without a key.
+@app.get("/v1/features", response_model=Features)
+def features() -> Features:
+    return Features(
+        ai_rewrite=rewriter.enabled(),
+        rewrite_max_chars=settings.rewrite_max_chars,
+        styles=[StyleOut(id=k, label=v[0]) for k, v in rewriter.STYLES.items()],
+    )
+
+
+@app.post("/v1/rewrite", response_model=RewriteResponse)
+def rewrite(body: RewriteRequest) -> RewriteResponse:
+    if body.style not in rewriter.STYLES:
+        raise HTTPException(status_code=422, detail=f"unknown style: {body.style}")
+    try:
+        result = rewriter.rewrite(body.text, body.style)
+    except rewriter.RewriteUnavailable as exc:
+        metrics.REWRITES.labels(body.style, "disabled").inc()
+        raise HTTPException(status_code=503, detail="AI rewriting is not enabled") from exc
+    except rewriter.RewriteFailed as exc:
+        metrics.REWRITES.labels(body.style, "error").inc()
+        raise HTTPException(status_code=502, detail="The AI service did not respond") from exc
+    metrics.REWRITES.labels(body.style, "ok").inc()
+    metrics.AI_TOKENS.labels(result.model).inc(result.tokens)
+    return RewriteResponse(text=result.text, style=result.style, model=result.model)
 
 
 @app.post("/v1/check", response_model=CheckResponse)
