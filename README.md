@@ -6,6 +6,8 @@ A small spell-checker web app, and a production-style AWS setup to run it.
 
 Paste some text, pick a language, and every misspelled word gets a wavy red underline. Click a word and choose a fix from the margin. It supports English, Spanish, French, German, Italian and Portuguese.
 
+![LexiCheck flags "reponse", "attatched" and "beleive" in an email draft, and suggests "attached" in the margin](.github/assets/screenshot.png)
+
 The app is deliberately simple. The point of the repo is everything around it: Terraform modules, a CI/CD pipeline with dev, staging and prod, zero-downtime deploys, and monitoring.
 
 ---
