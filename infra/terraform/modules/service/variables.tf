@@ -87,6 +87,12 @@ variable "cors_origins" {
   default = []
 }
 
+variable "openai_model" {
+  description = "Model used by the AI rewrite feature"
+  type        = string
+  default     = "gpt-4o-mini"
+}
+
 variable "log_retention_days" {
   type    = number
   default = 30

@@ -210,7 +210,7 @@ resource "aws_iam_role_policy_attachment" "execution_managed" {
 data "aws_iam_policy_document" "read_db_secret" {
   statement {
     actions   = ["secretsmanager:GetSecretValue"]
-    resources = [var.db_secret_arn]
+    resources = [var.db_secret_arn, aws_secretsmanager_secret.openai.arn]
   }
   statement {
     actions   = ["kms:Decrypt"]
@@ -227,6 +227,16 @@ resource "aws_iam_role_policy" "execution_secrets" {
 resource "aws_iam_role" "task" {
   name               = "${var.name}-task"
   assume_role_policy = data.aws_iam_policy_document.ecs_assume.json
+}
+
+# ---------------------------------------------------------------- OpenAI key
+# Terraform only creates the empty container. The value is written once with
+# `make aws-openai-key`, so the key never appears in code, CI or Terraform state.
+# ECS injects it into the task at startup; if it's missing, the AI feature stays off.
+resource "aws_secretsmanager_secret" "openai" {
+  name                    = "${var.name}/openai-api-key"
+  description             = "OpenAI API key for the AI rewrite feature"
+  recovery_window_in_days = 0 # throwaway environment: delete immediately on destroy
 }
 
 # ---------------------------------------------------------------- ECS
@@ -288,10 +298,12 @@ resource "aws_ecs_task_definition" "api" {
       { name = "LEXI_DB_HOST", value = var.db_host },
       { name = "LEXI_DB_NAME", value = var.db_name },
       { name = "LEXI_CORS_ORIGINS", value = jsonencode(var.cors_origins) },
+      { name = "OPENAI_MODEL", value = var.openai_model },
     ]
     secrets = [
       { name = "LEXI_DB_USER", valueFrom = "${var.db_secret_arn}:username::" },
       { name = "LEXI_DB_PASSWORD", valueFrom = "${var.db_secret_arn}:password::" },
+      { name = "OPENAI_API_KEY", valueFrom = aws_secretsmanager_secret.openai.arn },
     ]
     logConfiguration = {
       logDriver = "awslogs"

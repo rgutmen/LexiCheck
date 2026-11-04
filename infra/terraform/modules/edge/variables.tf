@@ -40,6 +40,12 @@ variable "rate_limit_per_5min" {
   default = 2000
 }
 
+variable "ai_rate_limit_per_minute" {
+  description = "Max AI rewrite requests per IP per minute (WAF minimum is 10)"
+  type        = number
+  default     = 10
+}
+
 variable "deletion_protection" {
   type    = bool
   default = true

@@ -11,6 +11,7 @@ output "deploy" {
     distribution_id    = module.edge.distribution_id
     region             = data.aws_region.current.name
     url                = "https://${coalesce(one(var.domain_names), module.edge.domain_name)}"
+    openai_secret_id   = module.service.openai_secret_id
   }
 }
 

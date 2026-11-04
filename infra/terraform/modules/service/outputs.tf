@@ -46,3 +46,7 @@ output "role_arns" {
 output "log_group_name" {
   value = aws_cloudwatch_log_group.api.name
 }
+
+output "openai_secret_id" {
+  value = aws_secretsmanager_secret.openai.id
+}

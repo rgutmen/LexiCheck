@@ -150,6 +150,45 @@ resource "aws_wafv2_web_acl" "this" {
     }
   }
 
+  # Each AI rewrite costs money, so it gets a much tighter limit than the rest
+  # of the site: per IP, counted over a 60 second window.
+  rule {
+    name     = "rate-limit-ai-rewrite"
+    priority = 0
+    action {
+      block {
+        custom_response {
+          response_code = 429
+        }
+      }
+    }
+    statement {
+      rate_based_statement {
+        limit                 = var.ai_rate_limit_per_minute
+        evaluation_window_sec = 60
+        aggregate_key_type    = "IP"
+        scope_down_statement {
+          byte_match_statement {
+            search_string         = "/api/v1/rewrite"
+            positional_constraint = "STARTS_WITH"
+            field_to_match {
+              uri_path {}
+            }
+            text_transformation {
+              priority = 0
+              type     = "LOWERCASE"
+            }
+          }
+        }
+      }
+    }
+    visibility_config {
+      cloudwatch_metrics_enabled = true
+      metric_name                = "${var.name}-ai-rate-limit"
+      sampled_requests_enabled   = true
+    }
+  }
+
   visibility_config {
     cloudwatch_metrics_enabled = true
     metric_name                = var.name
