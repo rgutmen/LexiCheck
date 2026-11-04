@@ -2,6 +2,12 @@ SHELL         := bash
 .SHELLFLAGS   := -euo pipefail -c
 .DEFAULT_GOAL := help
 
+# Optional local AWS credentials (gitignored), loaded into make's environment.
+# Accepts `export KEY=value` or `KEY=value` lines.
+ifneq (,$(wildcard .env.aws))
+  $(foreach line,$(shell sed -nE 's/^[[:space:]]*(export[[:space:]]+)?([A-Z_][A-Z0-9_]*)=["'\'']?([^"'\'']*)["'\'']?[[:space:]]*$$/\2=\3/p' .env.aws),$(eval export $(line)))
+endif
+
 ENV          ?= dev
 AWS_REGION   ?= eu-west-1
 REPO         ?= local/lexicheck
@@ -93,6 +99,17 @@ tf-validate: ## terraform validate every environment (no AWS needed)
 .PHONY: check
 check: lint test tf-validate ## Everything CI runs locally, except scans
 
+TRIVY = docker run --rm -v $(CURDIR):/src -v /var/run/docker.sock:/var/run/docker.sock \
+        -v $(HOME)/.cache/trivy:/root/.cache -w /src aquasec/trivy:latest
+
+.PHONY: scan
+scan: ## Trivy: Terraform misconfigs, dependency CVEs + secrets, and the API image
+	$(TRIVY) config --severity HIGH,CRITICAL --ignorefile .trivyignore --exit-code 1 infra/terraform
+	$(TRIVY) fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+	  --skip-dirs web/node_modules,api/.venv --skip-files .env.aws .
+	docker build -q -t lexicheck-api:scan api >/dev/null
+	$(TRIVY) image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 lexicheck-api:scan
+
 # ------------------------------------------------------------------ AWS
 # State lives in S3 (encrypted, versioned, native lockfile). `make aws-bootstrap`
 # creates the bucket once per account and region.
@@ -122,6 +139,15 @@ aws-bootstrap: ## Create the encrypted, versioned S3 bucket for Terraform state 
 	  '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"},"BucketKeyEnabled":true}]}'
 	aws s3api put-bucket-policy --bucket $(STATE_BUCKET) --policy \
 	  '{"Version":"2012-10-17","Statement":[{"Sid":"TLSOnly","Effect":"Deny","Principal":"*","Action":"s3:*","Resource":["arn:aws:s3:::$(STATE_BUCKET)","arn:aws:s3:::$(STATE_BUCKET)/*"],"Condition":{"Bool":{"aws:SecureTransport":"false"}}}]}'
+
+.PHONY: aws-budget
+aws-budget: ## Monthly cost budget for the account: email at 80% and 100% (EMAIL=you@x.com, LIMIT=20)
+	@test -n "$(ACCOUNT_ID)" || { echo "No AWS credentials. Set AWS_PROFILE first." >&2; exit 1; }
+	@test -n "$(EMAIL)" || { echo "Usage: make aws-budget EMAIL=you@example.com [LIMIT=20]" >&2; exit 1; }
+	terraform -chdir=infra/terraform/envs/account init -input=false -reconfigure \
+	  -backend-config=bucket=$(STATE_BUCKET) -backend-config=region=$(AWS_REGION) >/dev/null
+	terraform -chdir=infra/terraform/envs/account apply -input=false -auto-approve \
+	  -var region=$(AWS_REGION) -var 'budget_emails=["$(EMAIL)"]' -var monthly_budget=$(or $(LIMIT),20)
 
 .PHONY: aws-init
 aws-init:
