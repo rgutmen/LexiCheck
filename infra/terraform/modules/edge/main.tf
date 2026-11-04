@@ -1,13 +1,3 @@
-terraform {
-  required_providers {
-    aws = {
-      source                = "hashicorp/aws"
-      version               = "~> 5.60"
-      configuration_aliases = [aws.us_east_1]
-    }
-  }
-}
-
 # ---------------------------------------------------------------- static site bucket
 resource "aws_s3_bucket" "site" {
   bucket_prefix = "${var.name}-site-"

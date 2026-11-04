@@ -19,3 +19,6 @@ plan.out
 !*.tfvars.example
 backend.hcl
 *.tsbuildinfo
+
+# Provider lock files: versions are pinned by ranges in versions.tf instead
+.terraform.lock.hcl

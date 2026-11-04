@@ -176,7 +176,9 @@ infra/terraform/
   envs/dev|staging|prod/  one small root per environment
   envs/account/           account-wide things (the budget), separate state
 
-  Each folder has main.tf, variables.tf and outputs.tf (plus versions.tf in envs/).
+  Every folder: main.tf, variables.tf, outputs.tf and versions.tf (provider version
+  ranges, e.g. aws >= 5.60, < 6.0). Env roots also have providers.tf.
+  Lock files aren't committed; `terraform init` resolves within those ranges.
 
 .github/workflows/
   ci.yaml                 checks on every PR

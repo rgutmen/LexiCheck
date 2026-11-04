@@ -1,9 +1,3 @@
-terraform {
-  required_providers {
-    aws = { source = "hashicorp/aws", version = "~> 5.60" }
-  }
-}
-
 # Infrastructure-level alarms. Application-level SLOs live in Prometheus (ops/prometheus).
 resource "aws_sns_topic" "alerts" {
   name              = "${var.name}-alerts"

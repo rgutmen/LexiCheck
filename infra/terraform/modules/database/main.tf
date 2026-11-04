@@ -1,9 +1,3 @@
-terraform {
-  required_providers {
-    aws = { source = "hashicorp/aws", version = "~> 5.60" }
-  }
-}
-
 resource "aws_kms_key" "db" {
   description         = "${var.name} database encryption"
   enable_key_rotation = true
