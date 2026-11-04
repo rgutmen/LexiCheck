@@ -1,0 +1,20 @@
+# Findings we accept on purpose. Each one needs a reason; anything not listed fails CI.
+
+# Public ALB: it has to be reachable by CloudFront. Its security group only allows
+# CloudFront's IP ranges, and it rejects requests without the secret origin header.
+AVD-AWS-0053
+
+# Plain HTTP on the ALB listener: only CloudFront can reach it (see above), and
+# viewers always use HTTPS. Setting alb_certificate_arn switches the origin to HTTPS.
+AVD-AWS-0054
+
+# Task egress to 0.0.0.0/0 on 443 only: ECR, Secrets Manager and CloudWatch have no
+# fixed IP ranges. Postgres egress is limited to the VPC CIDR.
+AVD-AWS-0104
+
+# S3 site bucket uses SSE-S3: it holds public static assets, a customer key adds cost
+# and nothing else. The state bucket and the database use their own keys.
+AVD-AWS-0132
+
+# SNS alerts topic uses the AWS-managed key: alarm messages contain no sensitive data.
+AVD-AWS-0136

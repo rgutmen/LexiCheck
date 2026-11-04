@@ -9,7 +9,13 @@ COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev
 
 FROM python:3.14-slim
-RUN useradd --uid 10001 --create-home lexi
+# The app runs from the uv-built venv; pip and its vendored libraries are dead
+# weight and show up in vulnerability scans, so drop them.
+RUN python -m pip uninstall -y pip setuptools 2>/dev/null; \
+    rm -rf /usr/local/lib/python3.14/site-packages/pip* \
+           /usr/local/lib/python3.14/site-packages/setuptools* \
+           /usr/local/bin/pip* \
+ && useradd --uid 10001 --create-home lexi
 WORKDIR /app
 COPY --from=build --chown=lexi /app /app
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1

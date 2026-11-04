@@ -49,20 +49,37 @@ jobs:
             terraform -chdir="$env" init -backend=false -input=false
             terraform -chdir="$env" validate
           done
-      - name: tfsec / trivy config scan
-        uses: aquasecurity/trivy-action@0.24.0
+      - name: Trivy, Terraform misconfigurations
+        uses: aquasecurity/trivy-action@0.33.1
         with:
           scan-type: config
           scan-ref: infra/terraform
           severity: HIGH,CRITICAL
+          trivyignores: .trivyignore
           exit-code: "1"
 
+  # Trivy on the source tree: known CVEs in uv.lock / package-lock.json, plus
+  # leaked secrets (keys, tokens) committed by mistake.
+  deps-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  # Trivy on the built image: OS packages and Python libraries that actually ship.
   image-scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t lexicheck-api:ci api
-      - uses: aquasecurity/trivy-action@0.24.0
+      - uses: aquasecurity/trivy-action@0.33.1
         with:
           image-ref: lexicheck-api:ci
           severity: HIGH,CRITICAL

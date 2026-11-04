@@ -72,11 +72,26 @@ resource "aws_vpc_security_group_ingress_rule" "task_from_alb" {
   to_port                      = var.container_port
 }
 
-# Egress to the internet (ECR, Secrets Manager, CloudWatch) and the database.
-resource "aws_vpc_security_group_egress_rule" "task_all" {
+data "aws_vpc" "this" {
+  id = var.vpc_id
+}
+
+# Tasks only need HTTPS out (ECR, Secrets Manager, CloudWatch through the NAT)
+# and Postgres inside the VPC. Nothing else leaves.
+resource "aws_vpc_security_group_egress_rule" "task_https" {
   security_group_id = aws_security_group.task.id
-  ip_protocol       = "-1"
+  ip_protocol       = "tcp"
+  from_port         = 443
+  to_port           = 443
   cidr_ipv4         = "0.0.0.0/0"
+}
+
+resource "aws_vpc_security_group_egress_rule" "task_postgres" {
+  security_group_id = aws_security_group.task.id
+  ip_protocol       = "tcp"
+  from_port         = 5432
+  to_port           = 5432
+  cidr_ipv4         = data.aws_vpc.this.cidr_block
 }
 
 # ---------------------------------------------------------------- load balancer
