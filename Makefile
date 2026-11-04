@@ -156,6 +156,16 @@ aws-account: aws-oidc ## Account-wide setup: $$20 budget alerts + GitHub CI role
 	  -var github_repository=$(REPO) -var state_bucket=$(STATE_BUCKET) \
 	  $(if $(OIDC_SUB),-var github_oidc_subject_prefix=$(OIDC_SUB))
 
+.PHONY: aws-openai-key
+aws-openai-key: ## Store OPENAI_API_KEY (from .env.aws or your shell) in Secrets Manager
+	@test -n "$${OPENAI_API_KEY:-}" || { echo "Set OPENAI_API_KEY in .env.aws first." >&2; exit 1; }
+	@id=$$($(TF) output -json deploy | jq -r .openai_secret_id); \
+	  printf '%s' "$$OPENAI_API_KEY" > $(TMPDIR)/lexicheck-oai && chmod 600 $(TMPDIR)/lexicheck-oai; \
+	  aws secretsmanager put-secret-value --secret-id "$$id" \
+	    --secret-string file://$(TMPDIR)/lexicheck-oai >/dev/null; \
+	  rm -f $(TMPDIR)/lexicheck-oai; \
+	  echo "OpenAI key stored in $$id (value not printed)"
+
 .PHONY: gh-setup
 gh-setup: aws-init ## Connect GitHub Actions to AWS: create environments and set variables with gh
 	@command -v gh >/dev/null || { echo "Install the GitHub CLI (gh) first." >&2; exit 1; }
