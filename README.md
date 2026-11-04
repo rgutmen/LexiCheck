@@ -1,3 +1,5 @@
+<img src=".github/assets/logo.png" alt="" width="72" align="right">
+
 # LexiCheck
 
 A small spell-checker web app, and a production-style AWS setup to run it.
@@ -86,6 +88,9 @@ make dev
 # Lint, tests and terraform validate, same checks as CI
 make check
 
+# Trivy security scans (runs in Docker, nothing to install)
+make scan
+
 # Stop everything and remove the data
 make down
 ```
@@ -103,6 +108,9 @@ make down
 # Once per account: S3 bucket for Terraform state (encrypted, versioned, TLS only)
 make aws-bootstrap
 
+# Once per account: $20/month budget, emails you at 80% (actual or forecast) and 100%
+make aws-budget EMAIL=you@example.com
+
 # Infra + image + frontend + smoke test (~20 min, CloudFront and RDS are slow)
 make aws-up
 # Prints the CloudFront URL at the end, e.g. https://d1234abcd.cloudfront.net
@@ -117,11 +125,23 @@ make aws-down
 
 Once the infra exists, GitHub Actions takes over:
 
-- **Pull requests** run lint, tests, the frontend build, `terraform validate`, Trivy scans and a docker-compose smoke test. If you touched `infra/`, the Terraform plan is posted as a comment.
+- **Pull requests** run lint, tests, the frontend build, `terraform validate`, security scans and a docker-compose smoke test. If you touched `infra/`, the Terraform plan is posted as a comment.
 - **Merging to main** builds the image once (tagged with the commit SHA) and promotes it through dev, then staging, then prod. Prod waits for a manual approval.
 - **Rollback.** Run the *Release* workflow with an older `image_tag`. On top of that, ECS rolls back automatically if new tasks never become healthy.
 
 To connect it, create the GitHub environments `dev`, `staging` and `prod`. Fill their variables from `terraform output deploy` (role ARN, ECR URL, cluster, service, bucket, distribution ID, URL).
+
+### Security scanning
+
+[Trivy](https://trivy.dev) runs on every pull request, and the build fails on any HIGH or CRITICAL finding:
+
+| Scan | Looks for |
+|---|---|
+| `config` | Terraform misconfigurations (open security groups, unencrypted resources...) |
+| `fs` | Known CVEs in `uv.lock` and `package-lock.json`, and secrets committed by mistake |
+| `image` | CVEs in the API container (OS packages and Python libraries) |
+
+Accepted findings live in [`.trivyignore`](.trivyignore), each with a one-line reason. To keep the image clean, the runtime stage also strips out pip, since the app runs from the uv-built virtualenv.
 
 ---
 
@@ -151,8 +171,12 @@ infra/terraform/
     service/              ECR, ALB, ECS, IAM, autoscaling
     edge/                 S3, CloudFront, WAF
     alarms/               CloudWatch alarms -> SNS
+    budget/               monthly cost budget with email alerts
     stack/                wires it all together + GitHub deploy role
   envs/dev|staging|prod/  one small root per environment
+  envs/account/           account-wide things (the budget), separate state
+
+  Each folder has main.tf, variables.tf and outputs.tf (plus versions.tf in envs/).
 
 .github/workflows/
   ci.yaml                 checks on every PR
