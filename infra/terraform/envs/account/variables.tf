@@ -12,3 +12,12 @@ variable "monthly_budget" {
 variable "budget_emails" {
   type = list(string)
 }
+
+variable "github_repository" {
+  description = "owner/repo whose workflows may run Terraform"
+  type        = string
+}
+
+variable "state_bucket" {
+  type = string
+}

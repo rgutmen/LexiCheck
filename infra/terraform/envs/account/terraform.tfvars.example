@@ -1,2 +1,4 @@
-budget_emails  = ["you@example.com"]
-monthly_budget = 20
+budget_emails     = ["you@example.com"]
+monthly_budget    = 20
+github_repository = "your-user/lexicheck"
+state_bucket      = "lexicheck-tfstate-<account-id>-eu-west-1"

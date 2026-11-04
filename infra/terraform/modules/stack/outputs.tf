@@ -9,6 +9,8 @@ output "deploy" {
     task_family        = module.service.task_family
     site_bucket        = module.edge.site_bucket
     distribution_id    = module.edge.distribution_id
+    region             = data.aws_region.current.name
+    url                = "https://${coalesce(one(var.domain_names), module.edge.domain_name)}"
   }
 }
 

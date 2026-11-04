@@ -10,7 +10,8 @@ endif
 
 ENV          ?= dev
 AWS_REGION   ?= eu-west-1
-REPO         ?= local/lexicheck
+# owner/repo, taken from the git remote. CI roles trust GitHub tokens from this repo only.
+REPO         ?= $(shell git remote get-url origin 2>/dev/null | sed -E 's#(git@github.com:|https://github.com/)##; s#\.git$$##')
 TF_DIR       := infra/terraform/envs/$(ENV)
 TF           := terraform -chdir=$(TF_DIR)
 TF_VARS      := -var region=$(AWS_REGION) -var github_repository=$(REPO)
@@ -140,14 +141,45 @@ aws-bootstrap: ## Create the encrypted, versioned S3 bucket for Terraform state 
 	aws s3api put-bucket-policy --bucket $(STATE_BUCKET) --policy \
 	  '{"Version":"2012-10-17","Statement":[{"Sid":"TLSOnly","Effect":"Deny","Principal":"*","Action":"s3:*","Resource":["arn:aws:s3:::$(STATE_BUCKET)","arn:aws:s3:::$(STATE_BUCKET)/*"],"Condition":{"Bool":{"aws:SecureTransport":"false"}}}]}'
 
-.PHONY: aws-budget
-aws-budget: ## Monthly cost budget for the account: email at 80% and 100% (EMAIL=you@x.com, LIMIT=20)
+.PHONY: aws-account
+aws-account: aws-oidc ## Account-wide setup: $$20 budget alerts + GitHub CI roles (EMAIL=you@x.com, LIMIT=20)
 	@test -n "$(ACCOUNT_ID)" || { echo "No AWS credentials. Set AWS_PROFILE first." >&2; exit 1; }
-	@test -n "$(EMAIL)" || { echo "Usage: make aws-budget EMAIL=you@example.com [LIMIT=20]" >&2; exit 1; }
+	@test -n "$(EMAIL)" || { echo "Usage: make aws-account EMAIL=you@example.com [LIMIT=20]" >&2; exit 1; }
 	terraform -chdir=infra/terraform/envs/account init -input=false -reconfigure \
 	  -backend-config=bucket=$(STATE_BUCKET) -backend-config=region=$(AWS_REGION) >/dev/null
 	terraform -chdir=infra/terraform/envs/account apply -input=false -auto-approve \
-	  -var region=$(AWS_REGION) -var 'budget_emails=["$(EMAIL)"]' -var monthly_budget=$(or $(LIMIT),20)
+	  -var region=$(AWS_REGION) -var 'budget_emails=["$(EMAIL)"]' -var monthly_budget=$(or $(LIMIT),20) \
+	  -var github_repository=$(REPO) -var state_bucket=$(STATE_BUCKET)
+
+.PHONY: gh-setup
+gh-setup: aws-init ## Connect GitHub Actions to AWS: create environments and set variables with gh
+	@command -v gh >/dev/null || { echo "Install the GitHub CLI (gh) first." >&2; exit 1; }
+	@echo "Configuring $(REPO)"
+	out=$$($(TF) output -json deploy); acct=$$(terraform -chdir=infra/terraform/envs/account output -json ci); \
+	v() { jq -r ".$$1" <<<"$$out"; }; \
+	gh api -X PUT repos/$(REPO)/environments/dev >/dev/null; \
+	gh api -X PUT repos/$(REPO)/environments/infra --input - >/dev/null <<<'{"deployment_branch_policy":{"protected_branches":false,"custom_branch_policies":true}}'; \
+	gh api -X POST repos/$(REPO)/environments/infra/deployment-branch-policies -f name=main -f type=branch >/dev/null 2>&1 || true; \
+	set_env() { gh variable set "$$1" --env dev --repo $(REPO) --body "$$2" >/dev/null && echo "  dev: $$1"; }; \
+	set_env DEPLOY_ROLE_ARN    "$$(v role_arn)"; \
+	set_env ECR_REPOSITORY_URL "$$(v ecr_repository_url)"; \
+	set_env ECS_CLUSTER        "$$(v cluster)"; \
+	set_env ECS_SERVICE        "$$(v service)"; \
+	set_env TASK_FAMILY        "$$(v task_family)"; \
+	set_env SITE_BUCKET        "$$(v site_bucket)"; \
+	set_env DISTRIBUTION_ID    "$$(v distribution_id)"; \
+	set_env APP_URL            "$$(v url)"; \
+	set_repo() { gh variable set "$$1" --repo $(REPO) --body "$$2" >/dev/null && echo "  repo: $$1"; }; \
+	set_repo AWS_REGION        "$(AWS_REGION)"; \
+	set_repo TF_STATE_BUCKET   "$(STATE_BUCKET)"; \
+	set_repo TF_PLAN_ROLE_ARN  "$$(jq -r .plan_role_arn <<<"$$acct")"; \
+	set_repo TF_APPLY_ROLE_ARN "$$(jq -r .apply_role_arn <<<"$$acct")"; \
+	set_repo AWS_DEPLOY_ENABLED true
+	@echo "Done. Push to main (or run the Release workflow) to deploy."
+
+.PHONY: gh-disconnect
+gh-disconnect: ## Stop GitHub from deploying (run before make aws-down)
+	gh variable set AWS_DEPLOY_ENABLED --repo $(REPO) --body false
 
 .PHONY: aws-init
 aws-init:
