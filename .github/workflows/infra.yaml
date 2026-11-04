@@ -1,4 +1,5 @@
-# Infrastructure changes: plan on PR (comment), apply on main per environment.
+# Terraform for the dev environment: plan on every PR that touches infra/
+# (posted as a comment), apply when it lands on main.
 name: Infrastructure
 
 on:
@@ -13,15 +14,19 @@ permissions:
   contents: read
   pull-requests: write
 
+concurrency:
+  group: terraform-dev
+  cancel-in-progress: false
+
+env:
+  TF_DIR: infra/terraform/envs/dev
+  TF_VAR_github_repository: ${{ github.repository }}
+  TF_VAR_region: ${{ vars.AWS_REGION }}
+
 jobs:
   plan:
     if: github.event_name == 'pull_request' && vars.AWS_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix: { environment: [dev, staging, prod] }
-    environment: ${{ matrix.environment }}-plan
-    defaults: { run: { working-directory: "infra/terraform/envs/${{ matrix.environment }}" } }
     steps:
       - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v4
@@ -29,25 +34,24 @@ jobs:
         with:
           role-to-assume: ${{ vars.TF_PLAN_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
+      - run: >
+          terraform -chdir="$TF_DIR" init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="region=${{ vars.AWS_REGION }}"
       - id: plan
-        run: terraform plan -input=false -no-color -lock-timeout=5m -var github_repository=${{ github.repository }} -out=tfplan
+        run: terraform -chdir="$TF_DIR" plan -input=false -no-color -lock-timeout=5m
       - uses: actions/github-script@v9
         env: { PLAN: "${{ steps.plan.outputs.stdout }}" }
         with:
           script: |
-            const body = `#### Terraform plan: \`${{ matrix.environment }}\`\n<details><summary>show</summary>\n\n\`\`\`\n${process.env.PLAN.slice(-60000)}\n\`\`\`\n</details>`;
+            const body = `#### Terraform plan (dev)\n<details><summary>show</summary>\n\n\`\`\`\n${process.env.PLAN.slice(-60000)}\n\`\`\`\n</details>`;
             await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
 
   apply:
     if: github.event_name == 'push' && vars.AWS_DEPLOY_ENABLED == 'true'
     runs-on: ubuntu-latest
-    strategy:
-      max-parallel: 1
-      matrix: { environment: [dev, staging, prod] }
-    environment: ${{ matrix.environment }}-infra
-    concurrency: { group: "tf-${{ matrix.environment }}", cancel-in-progress: false }
-    defaults: { run: { working-directory: "infra/terraform/envs/${{ matrix.environment }}" } }
+    # The apply role only trusts tokens from this environment, which only main can use.
+    environment: infra
     steps:
       - uses: actions/checkout@v7
       - uses: hashicorp/setup-terraform@v4
@@ -55,5 +59,8 @@ jobs:
         with:
           role-to-assume: ${{ vars.TF_APPLY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-      - run: terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}" -backend-config="region=${{ vars.AWS_REGION }}"
-      - run: terraform apply -input=false -auto-approve -lock-timeout=5m -var github_repository=${{ github.repository }}
+      - run: >
+          terraform -chdir="$TF_DIR" init -input=false
+          -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          -backend-config="region=${{ vars.AWS_REGION }}"
+      - run: terraform -chdir="$TF_DIR" apply -input=false -auto-approve -lock-timeout=5m

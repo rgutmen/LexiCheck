@@ -1,4 +1,5 @@
-# main -> build once -> dev -> staging -> prod (manual approval on the prod environment).
+# Push to main: CI, build the image once, deploy it to AWS.
+# Manual run with an older image tag = rollback.
 name: Release
 
 on:
@@ -7,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       image_tag:
-        description: "Redeploy an existing image tag (rollback). Leave empty to build HEAD."
+        description: "Redeploy an existing image (rollback). Leave empty to build HEAD."
         required: false
 
 permissions:
@@ -23,69 +24,94 @@ jobs:
     if: ${{ !inputs.image_tag }}
     uses: ./.github/workflows/ci.yaml
 
-  # Deploy jobs only run once the repo is connected to AWS (see README, CI/CD).
-  # Until then, set nothing and pushes just run CI.
-  build:
+  deploy:
     needs: ci
+    # Skipped until the repo is connected to AWS (make gh-setup sets this).
     if: ${{ always() && vars.AWS_DEPLOY_ENABLED == 'true' && (needs.ci.result == 'success' || inputs.image_tag) }}
-    runs-on: ubuntu-latest
-    environment: build
-    outputs:
-      image_tag: ${{ steps.tag.outputs.value }}
+    # Native ARM runner: the Fargate tasks are ARM64, so no QEMU emulation needed.
+    runs-on: ubuntu-24.04-arm
+    # The `dev` environment holds the deploy variables, and the AWS role only
+    # trusts tokens issued for it.
+    environment:
+      name: dev
+      url: ${{ vars.APP_URL }}
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+      IMAGE_TAG: ${{ inputs.image_tag || github.sha }}
     steps:
       - uses: actions/checkout@v7
-      - id: tag
-        run: echo "value=${{ inputs.image_tag || github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - uses: aws-actions/amazon-ecr-login@v2
+
+      # Tags are immutable, so each commit gets exactly one image. Rollbacks reuse it.
+      - name: Build and push API image
+        if: ${{ !inputs.image_tag }}
+        run: |
+          docker build -t "$ECR_REPOSITORY_URL:$IMAGE_TAG" api
+          docker push "$ECR_REPOSITORY_URL:$IMAGE_TAG"
+
+      - name: Check the image exists
+        run: |
+          aws ecr describe-images --repository-name "${ECR_REPOSITORY_URL##*/}" \
+            --image-ids imageTag="$IMAGE_TAG" >/dev/null
+
+      - name: Render task definition
+        run: |
+          aws ecs describe-task-definition --task-definition "${{ vars.TASK_FAMILY }}" \
+            --query taskDefinition > taskdef.json
+      - id: render
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: taskdef.json
+          container-name: api
+          image: ${{ env.ECR_REPOSITORY_URL }}:${{ env.IMAGE_TAG }}
+
+      # Rolling deploy: new tasks must pass the ALB health check before old ones
+      # drain. If they never get healthy, ECS rolls back on its own.
+      - name: Deploy API to ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.render.outputs.task-definition }}
+          cluster: ${{ vars.ECS_CLUSTER }}
+          service: ${{ vars.ECS_SERVICE }}
+          wait-for-service-stability: true
+          wait-for-minutes: 15
 
       - uses: voidzero-dev/setup-vp@v1
         with: { node-version: "24", cache: true }
-      - run: vp install && vp build
+
+      # Hashed assets first (long cache), then root files (favicons, manifest),
+      # then index.html last with no cache, so nobody loads a page pointing at
+      # files that aren't uploaded yet.
+      - name: Build and publish frontend
         working-directory: web
-      - uses: actions/upload-artifact@v7
-        with: { name: web-dist, path: web/dist, retention-days: 30 }
+        run: |
+          vp install && vp build
+          aws s3 sync dist/assets "s3://${{ vars.SITE_BUCKET }}/assets" \
+            --cache-control "public,max-age=31536000,immutable"
+          aws s3 sync dist "s3://${{ vars.SITE_BUCKET }}" --exclude "assets/*" --exclude index.html \
+            --cache-control "public,max-age=86400"
+          aws s3 cp dist/index.html "s3://${{ vars.SITE_BUCKET }}/index.html" --cache-control no-cache
+          aws cloudfront create-invalidation --distribution-id "${{ vars.DISTRIBUTION_ID }}" \
+            --paths "/index.html" "/favicon*" "/site.webmanifest" >/dev/null
 
-      - if: ${{ !inputs.image_tag }}
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ vars.BUILD_ROLE_ARN }}
-          aws-region: ${{ vars.AWS_REGION }}
-      - if: ${{ !inputs.image_tag }}
-        uses: aws-actions/amazon-ecr-login@v2
-      - if: ${{ !inputs.image_tag }}
-        uses: docker/setup-qemu-action@v4
-      - if: ${{ !inputs.image_tag }}
-        uses: docker/setup-buildx-action@v4
-      # Pushed to every environment's registry: tags are immutable, so a rollback is
-      # just redeploying an older SHA through workflow_dispatch.
-      - if: ${{ !inputs.image_tag }}
-        uses: docker/build-push-action@v7
-        with:
-          context: api
-          platforms: linux/arm64
-          push: true
-          provenance: true
-          sbom: true
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          tags: |
-            ${{ vars.ECR_DEV }}:${{ steps.tag.outputs.value }}
-            ${{ vars.ECR_STAGING }}:${{ steps.tag.outputs.value }}
-            ${{ vars.ECR_PROD }}:${{ steps.tag.outputs.value }}
+      - name: Smoke test through CloudFront
+        run: |
+          for i in $(seq 1 12); do curl -fsS "${{ vars.APP_URL }}/api/readyz" && break; sleep 5; done
+          curl -fsS -X POST "${{ vars.APP_URL }}/api/v1/check" \
+            -H 'content-type: application/json' -d '{"text":"smoke tset"}' \
+            | jq -e '.issues | length >= 1'
 
-  dev:
-    needs: build
-    if: ${{ always() && needs.build.result == 'success' }}
-    uses: ./.github/workflows/deploy-env.yaml
-    with: { environment: dev, image_tag: "${{ needs.build.outputs.image_tag }}" }
-
-  staging:
-    needs: [build, dev]
-    if: ${{ always() && needs.dev.result == 'success' }}
-    uses: ./.github/workflows/deploy-env.yaml
-    with: { environment: staging, image_tag: "${{ needs.build.outputs.image_tag }}" }
-
-  prod:
-    needs: [build, staging]
-    if: ${{ always() && needs.staging.result == 'success' }}
-    uses: ./.github/workflows/deploy-env.yaml
-    with: { environment: prod, image_tag: "${{ needs.build.outputs.image_tag }}" }
+      - name: Summary
+        run: |
+          {
+            echo "### Deployed to dev"
+            echo "- Image: \`$IMAGE_TAG\`"
+            echo "- URL: ${{ vars.APP_URL }}"
+          } >> "$GITHUB_STEP_SUMMARY"

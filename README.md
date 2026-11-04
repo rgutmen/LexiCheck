@@ -8,7 +8,7 @@ Paste some text, pick a language, and every misspelled word gets a wavy red unde
 
 Under the hood there's no AI model. It uses [pyspellchecker](https://github.com/barrust/pyspellchecker), which follows Peter Norvig's classic approach: words not in the language's dictionary get flagged, and suggestions are dictionary words one or two edits away, ranked by how common they are. You pick the language yourself, nothing is auto-detected. It's fast, cheap and predictable, but it won't catch a real word used in the wrong place ("their" vs "there").
 
-The app is deliberately simple. The point of the repo is everything around it: Terraform modules, a CI/CD pipeline with dev, staging and prod, zero-downtime deploys, and monitoring.
+The app is deliberately simple. The point of the repo is everything around it: Terraform modules, a GitHub Actions pipeline that deploys to AWS without any stored keys, zero-downtime deploys, security scanning and monitoring.
 
 ---
 
@@ -24,7 +24,7 @@ flowchart TD
     ALB["ALB\nonly accepts CloudFront"]
     ECS["ECS Fargate\nFastAPI, private subnets"]
     SM["Secrets Manager\nDB password (managed by RDS)"]
-    RDS["RDS PostgreSQL\nencrypted, Multi-AZ in prod"]
+    RDS["RDS PostgreSQL\nencrypted, private"]
 
     Users --> CF
     CF -->|"/*"| S3
@@ -40,7 +40,7 @@ The browser only ever talks to CloudFront. Static files come from S3, and anythi
 
 ```mermaid
 flowchart LR
-    subgraph VPC["VPC (2 AZs in dev/staging, 3 in prod)"]
+    subgraph VPC["VPC (2 AZs)"]
         subgraph pub["Public subnets"]
             ALB2["ALB"]
             NAT["NAT Gateway"]
@@ -63,7 +63,7 @@ A few decisions worth mentioning:
 - **Fargate on ARM.** No servers to patch, and it's cheaper than x86. It autoscales on CPU and on requests per task.
 - **No passwords anywhere.** RDS creates and rotates its own master password in Secrets Manager. It never shows up in Terraform state, variables or CI.
 - **No AWS keys in GitHub.** Actions logs in through OIDC, and each environment has its own role.
-- **Cheap where it can be.** Dev and staging use one NAT gateway, Fargate Spot and a single-AZ database. Prod gets a NAT per AZ, Multi-AZ RDS and longer backups.
+- **Cheap where it can be.** One NAT gateway, Fargate Spot and the smallest single-AZ database. The same modules switch to a NAT per AZ, Multi-AZ RDS and longer backups when `environment` is `prod`.
 
 ---
 
@@ -99,39 +99,57 @@ make down
 
 ### AWS
 
+Everything runs in one AWS account and one environment (`dev`). The Terraform is split into reusable modules, so adding a staging or prod root later means copying `envs/dev`.
+
 #### Prerequisites
 
-1. AWS credentials loaded (`export AWS_PROFILE=...`). Check with `make aws-whoami`.
-2. Terraform >= 1.10. The S3 backend uses the native lockfile (`use_lockfile`), so you don't need a DynamoDB table.
+1. AWS credentials on your machine: `export AWS_PROFILE=...`, or `export AWS_ACCESS_KEY_ID=...` lines in a `.env.aws` file at the repo root (gitignored, the Makefile loads it). Check with `make aws-whoami`.
+2. Terraform >= 1.10, and the GitHub CLI (`gh`) logged in.
 
-#### Deploy
+#### First deploy (from your machine)
 
 ```bash
-# Once per account: S3 bucket for Terraform state (encrypted, versioned, TLS only)
+# S3 bucket for Terraform state: encrypted, versioned, TLS only, native lockfile
 make aws-bootstrap
 
-# Once per account: $20/month budget, emails you at 80% (actual or forecast) and 100%
-make aws-budget EMAIL=you@example.com
+# Account-wide: $20/month budget (emails at 80% and 100%) and the roles GitHub uses
+make aws-account EMAIL=you@example.com
 
 # Infra + image + frontend + smoke test (~20 min, CloudFront and RDS are slow)
 make aws-up
 # Prints the CloudFront URL at the end, e.g. https://d1234abcd.cloudfront.net
-
-# Tear it all down again
-make aws-down
 ```
 
-`ENV` defaults to `dev`. Use `ENV=staging` or `ENV=prod` for the others. All three can share one AWS account, because names, CIDRs and state files are separate per environment.
+#### Hand it over to GitHub Actions
 
-#### CI/CD
+```bash
+make gh-setup
+```
 
-Once the infra exists, GitHub Actions takes over:
+This creates the GitHub environments and fills in their variables from `terraform output`. **No secrets involved:** GitHub logs in to AWS through OIDC and gets short-lived credentials, and each role only trusts tokens from this repo.
 
-- **Pull requests** run lint, tests, the frontend build, `terraform validate`, security scans and a docker-compose smoke test. If you touched `infra/`, the Terraform plan is posted as a comment.
-- **Merging to main** builds the image once (tagged with the commit SHA) and promotes it through dev, then staging, then prod. Prod waits for a manual approval.
-- **Rollback.** Run the *Release* workflow with an older `image_tag`. On top of that, ECS rolls back automatically if new tasks never become healthy.
+| AWS role | Used by | Trusts |
+|---|---|---|
+| `lexicheck-dev-github-deploy` | Release (ECR, ECS, S3) | the `dev` environment |
+| `lexicheck-github-tf-plan` | Terraform plan on PRs | any branch, read-only |
+| `lexicheck-github-tf-apply` | Terraform apply | the `infra` environment, main branch only |
 
-To connect it, create the GitHub environments `dev`, `staging` and `prod`. Fill their variables from `terraform output deploy` (role ARN, ECR URL, cluster, service, bucket, distribution ID, URL), then set the repo variable `AWS_DEPLOY_ENABLED=true`. Until you do, pushes only run CI.
+The variables (role ARNs, bucket and cluster names, URL) aren't sensitive, and they live in GitHub, not in git.
+
+From then on:
+
+- **Pull requests** run lint, tests, the frontend build, `terraform validate`, Trivy and a docker-compose smoke test. If you touched `infra/`, the Terraform plan is posted as a comment.
+- **Merging to main** runs CI, builds the ARM64 image on an ARM runner, pushes it to ECR tagged with the commit SHA, rolls ECS over to it, publishes the frontend to S3 and smoke tests the live URL. Changes under `infra/` get applied too.
+- **Rollback.** Run the *Release* workflow by hand with an older `image_tag`. ECS also rolls back on its own if new tasks never get healthy.
+
+#### Tear down
+
+```bash
+make gh-disconnect   # stop GitHub from deploying
+make aws-down        # destroy the environment
+```
+
+The budget and CI roles stay, since they cost nothing. If you're done for good, `make aws-delete-state` removes the state bucket.
 
 ### Security scanning
 
@@ -174,9 +192,10 @@ infra/terraform/
     edge/                 S3, CloudFront, WAF
     alarms/               CloudWatch alarms -> SNS
     budget/               monthly cost budget with email alerts
+    ci-roles/             OIDC roles GitHub uses to run Terraform
     stack/                wires it all together + GitHub deploy role
-  envs/dev|staging|prod/  one small root per environment
-  envs/account/           account-wide things (the budget), separate state
+  envs/dev/               the environment
+  envs/account/           account-wide things (budget, CI roles), separate state
 
   Every folder: main.tf, variables.tf, outputs.tf and versions.tf (provider version
   ranges, e.g. aws >= 5.60, < 6.0). Env roots also have providers.tf.
@@ -184,7 +203,6 @@ infra/terraform/
 
 .github/workflows/
   ci.yaml                 checks on every PR
-  release.yaml            build once, promote dev -> staging -> prod
-  deploy-env.yaml         deploy to one environment (reused)
+  release.yaml            build the image, deploy to ECS + S3, smoke test
   infra.yaml              terraform plan on PR, apply on main
 ```
